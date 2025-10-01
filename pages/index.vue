@@ -323,6 +323,66 @@
                       ></div>
                       <div v-else class="whitespace-pre-wrap break-words overflow-wrap-anywhere">{{ message.content }}</div>
                       
+                      <!-- Attachments Display -->
+                      <div v-if="message.attachments && message.attachments.length > 0" class="mt-2 space-y-2">
+                        <div v-for="(attachment, index) in message.attachments" :key="index" class="border rounded-lg p-2 bg-background/50">
+                          <!-- Image Attachment -->
+                          <div v-if="attachment.type === 'image'" class="space-y-2">
+                            <div class="flex items-center space-x-2 text-xs text-muted-foreground">
+                              <Image class="w-3 h-3" />
+                              <span>{{ attachment.fileName }}</span>
+                            </div>
+                            <img :src="attachment.data" :alt="attachment.fileName" class="max-w-full h-auto rounded border" style="max-height: 200px;" />
+                          </div>
+                          
+                          <!-- PDF Attachment -->
+                          <div v-else-if="attachment.type === 'pdf'" class="space-y-2">
+                            <div class="flex items-center space-x-2 text-xs text-muted-foreground">
+                              <FileText class="w-3 h-3" />
+                              <span>{{ attachment.fileName }}</span>
+                              <span v-if="attachment.status === 'extraction_failed'" class="text-orange-500 text-xs">
+                                ⚠️ Text extraction failed
+                              </span>
+                              <span v-else class="text-green-500 text-xs">
+                                ✅ Extracted
+                              </span>
+                            </div>
+                            <div class="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
+                              <span v-if="attachment.status === 'extraction_failed'">
+                                PDF uploaded successfully, but text extraction failed. Content analysis may be limited.
+                              </span>
+                              <span v-else>
+                                PDF content extracted and analyzed successfully.
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <!-- Audio Attachment -->
+                          <div v-else-if="attachment.type === 'audio'" class="space-y-2">
+                            <div class="flex items-center space-x-2 text-xs text-muted-foreground">
+                              <Mic class="w-3 h-3" />
+                              <span>{{ attachment.fileName }}</span>
+                              <span v-if="attachment.status === 'transcription_failed'" class="text-orange-500 text-xs">
+                                ⚠️ Transcription failed
+                              </span>
+                              <span v-else class="text-green-500 text-xs">
+                                ✅ Transcribed
+                              </span>
+                            </div>
+                            <audio controls class="w-full max-w-xs">
+                              <source :src="attachment.data" type="audio/wav">
+                              Your browser does not support the audio element.
+                            </audio>
+                            <div v-if="attachment.status === 'transcription_failed'" class="text-xs text-orange-600 bg-orange-50 p-2 rounded">
+                              Audio uploaded successfully, but transcription failed. Please check OpenAI API configuration.
+                            </div>
+                            <div v-else-if="attachment.extractedText && !attachment.extractedText.includes('transcription')" class="text-xs text-green-600 bg-green-50 p-2 rounded">
+                              Transcription: "{{ attachment.extractedText.substring(0, 100) }}..."
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      
                       <!-- Typing cursor for streaming messages -->
                       <span 
                         v-if="message.role === 'assistant' && message.streaming && isLastAIMessage(message.id)"
@@ -382,24 +442,99 @@
           </div>
 
           <!-- Input Area -->
-          <div class="flex-shrink-0 border-t bg-background p-3 sm:p-4">
-            <div class="flex space-x-2 w-full max-w-4xl mx-auto">
-              <Input
-                v-model="input"
-                placeholder="Type your message..."
-                @keydown.enter="handleSubmit"
-                :disabled="isLoading || !currentSessionId"
-                class="flex-1 min-w-0"
+          <div class="flex-shrink-0 border-t bg-background">
+            <!-- Attachment Preview -->
+            <div v-if="attachments.length > 0" class="border-b bg-muted/50 p-3">
+              <div class="flex items-center justify-between max-w-4xl mx-auto">
+                <div class="flex items-center space-x-2">
+                  <div v-for="(attachment, index) in attachments" :key="index" class="flex items-center space-x-2 bg-background rounded-lg p-2 border">
+                    <Image v-if="attachment.type === 'image'" class="w-4 h-4 text-blue-500" />
+                    <FileText v-else-if="attachment.type === 'pdf'" class="w-4 h-4 text-red-500" />
+                    <Mic v-else-if="attachment.type === 'audio'" class="w-4 h-4 text-green-500" />
+                    <span class="text-sm truncate max-w-32">{{ attachment.fileName || 'Uploaded file' }}</span>
+                    <Button @click="removeAttachment(index)" variant="ghost" size="sm" class="h-6 w-6 p-0">
+                      <X class="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Audio Recording Indicator -->
+            <div v-if="isRecording" class="border-b bg-red-50 p-3">
+              <div class="flex items-center justify-center space-x-2 text-red-600">
+                <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                <span class="text-sm font-medium">Recording... {{ recordingDuration }}s</span>
+                <Button @click="stopRecording" variant="ghost" size="sm" class="text-red-600">
+                  <MicOff class="w-4 h-4" />
+                  Stop
+                </Button>
+              </div>
+            </div>
+
+            <div class="p-3 sm:p-4">
+              <div class="flex space-x-2 w-full max-w-4xl mx-auto">
+                <!-- Attachment Button -->
+                <div class="attachment-menu-container relative">
+                  <Button @click="toggleAttachmentMenu" variant="ghost" size="sm" :disabled="isLoading" class="flex-shrink-0">
+                    <Paperclip class="w-4 h-4" />
+                  </Button>
+
+                  <!-- Attachment Menu -->
+                  <div v-if="showAttachmentMenu" class="absolute bottom-12 left-0 bg-background border rounded-lg shadow-lg p-2 z-10">
+                  <div class="flex flex-col space-y-1 min-w-32">
+                    <Button @click="triggerImageUpload" variant="ghost" size="sm" class="justify-start">
+                      <Image class="w-4 h-4 mr-2" />
+                      Image
+                    </Button>
+                    <Button @click="triggerPdfUpload" variant="ghost" size="sm" class="justify-start">
+                      <FileText class="w-4 h-4 mr-2" />
+                      PDF
+                    </Button>
+                    <Button @click="startRecording" variant="ghost" size="sm" class="justify-start" :disabled="isRecording">
+                      <Mic class="w-4 h-4 mr-2" />
+                      Record
+                    </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Text Input -->
+                <Input
+                  v-model="input"
+                  placeholder="Type your message..."
+                  @keydown.enter="handleSubmit"
+                  :disabled="isLoading || !currentSessionId"
+                  class="flex-1 min-w-0"
+                />
+
+                <!-- Send Button -->
+                <Button @click="handleSubmit" :disabled="isLoading || (!input.trim() && attachments.length === 0) || !currentSessionId" class="flex-shrink-0">
+                  <svg v-if="!isLoading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                  <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                </Button>
+              </div>
+
+              <!-- Hidden File Inputs -->
+              <input 
+                ref="imageInput" 
+                type="file" 
+                accept="image/*" 
+                @change="handleImageUpload" 
+                class="hidden" 
               />
-              <Button @click="handleSubmit" :disabled="isLoading || !input.trim() || !currentSessionId" class="flex-shrink-0">
-                <svg v-if="!isLoading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-                <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-              </Button>
+              <input 
+                ref="pdfInput" 
+                type="file" 
+                accept="application/pdf" 
+                @change="handlePdfUpload" 
+                class="hidden" 
+              />
             </div>
           </div>
         </div>
@@ -409,9 +544,9 @@
 </template>
 
 <script setup>
-import { LogOut, Menu, X, Plus } from 'lucide-vue-next';
+import { LogOut, Menu, X, Plus, Upload, Image, FileText, Mic, MicOff, Paperclip } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it'
-import { onMounted } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 
 const { user, isLoggedIn, login, logout } = useAuth()
 
@@ -453,6 +588,16 @@ const availableModels = [
     description: 'More powerful, better for complex tasks'
   }
 ]
+
+// Multimodal state
+const attachments = ref([])
+const showAttachmentMenu = ref(false)
+const imageInput = ref(null)
+const pdfInput = ref(null)
+const isRecording = ref(false)
+const recordingDuration = ref(0)
+const mediaRecorder = ref(null)
+const recordingInterval = ref(null)
 
 const clearError = () => {
   error.value = null
@@ -524,6 +669,13 @@ onMounted(() => {
     if (savedModel && availableModels.some(m => m.value === savedModel)) {
       selectedAIModel.value = savedModel
     }
+    
+    // Click outside handler for attachment menu
+    document.addEventListener('click', (event) => {
+      if (showAttachmentMenu.value && !event.target?.closest('.attachment-menu-container')) {
+        showAttachmentMenu.value = false
+      }
+    })
   }
 })
 
@@ -624,18 +776,219 @@ async function selectSession(sessionId) {
   }
 }
 
+// Multimodal functions
+function toggleAttachmentMenu() {
+  showAttachmentMenu.value = !showAttachmentMenu.value
+}
+
+function triggerImageUpload() {
+  imageInput.value?.click()
+  showAttachmentMenu.value = false
+}
+
+function triggerPdfUpload() {
+  pdfInput.value?.click()
+  showAttachmentMenu.value = false
+}
+
+async function handleImageUpload(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onload = async (e) => {
+    try {
+      const base64Data = e.target?.result
+      attachments.value.push({
+        type: 'image',
+        data: base64Data,
+        mimeType: file.type,
+        fileName: file.name
+      })
+    } catch (error) {
+      console.error('Failed to process image:', error)
+      alert('Failed to process image file')
+    }
+  }
+  reader.readAsDataURL(file)
+  
+  // Clear input
+  event.target.value = ''
+}
+
+async function handlePdfUpload(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  try {
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      try {
+        const base64Data = e.target?.result
+        
+        // Process PDF on server
+        const response = await $fetch('/api/upload', {
+          method: 'POST',
+          body: {
+            file: base64Data,
+            type: file.type
+          }
+        })
+
+        if (response.success) {
+          const extractedText = response.data.extractedText
+          let status = 'success'
+          
+          // Check if extraction failed
+          if (extractedText.includes('text extraction failed') || 
+              extractedText.includes('text extraction unavailable')) {
+            status = 'extraction_failed'
+          }
+          
+          attachments.value.push({
+            type: 'pdf',
+            data: base64Data,
+            extractedText: extractedText,
+            mimeType: file.type,
+            fileName: file.name,
+            status: status
+          })
+          
+          // Show user feedback
+          if (status === 'extraction_failed') {
+            console.warn('PDF uploaded but text extraction failed')
+            // You could show a toast notification here
+          } else {
+            console.log('PDF uploaded and text extracted successfully')
+          }
+        }
+      } catch (error) {
+        console.error('Failed to process PDF:', error)
+        alert('Failed to process PDF file')
+      }
+    }
+    reader.readAsDataURL(file)
+  } catch (error) {
+    console.error('PDF upload error:', error)
+    alert('Failed to upload PDF')
+  }
+  
+  // Clear input
+  event.target.value = ''
+}
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    mediaRecorder.value = new MediaRecorder(stream)
+    
+    const chunks = []
+    mediaRecorder.value.ondataavailable = (event) => {
+      chunks.push(event.data)
+    }
+    
+    mediaRecorder.value.onstop = async () => {
+      const blob = new Blob(chunks, { type: 'audio/wav' })
+      const reader = new FileReader()
+      reader.onload = async (e) => {
+        try {
+          const base64Data = e.target?.result
+          
+          // Process audio with speech-to-text
+          console.log('Processing audio for transcription...')
+          
+          const response = await $fetch('/api/upload', {
+            method: 'POST',
+            body: {
+              file: base64Data,
+              type: 'audio/wav'
+            }
+          })
+          
+          if (response.success) {
+            const extractedText = response.data.extractedText
+            let status = 'success'
+            
+            // Check transcription status
+            if (extractedText.includes('transcription not implemented') || 
+                extractedText.includes('transcription failed') ||
+                extractedText.includes('API key required')) {
+              status = 'transcription_failed'
+            }
+            
+            attachments.value.push({
+              type: 'audio',
+              data: base64Data,
+              extractedText: extractedText,
+              mimeType: 'audio/wav',
+              fileName: `recording-${Date.now()}.wav`,
+              status: status
+            })
+            
+            // Show user feedback
+            if (status === 'transcription_failed') {
+              console.warn('Audio uploaded but transcription failed')
+            } else {
+              console.log('Audio uploaded and transcribed successfully')
+            }
+          }
+        } catch (error) {
+          console.error('Failed to process audio:', error)
+          alert('Failed to process audio recording')
+        }
+      }
+      reader.readAsDataURL(blob)
+    }
+    
+    isRecording.value = true
+    recordingDuration.value = 0
+    mediaRecorder.value.start()
+    
+    // Update duration counter
+    recordingInterval.value = setInterval(() => {
+      recordingDuration.value++
+    }, 1000)
+    
+    showAttachmentMenu.value = false
+  } catch (error) {
+    console.error('Recording error:', error)
+    alert('Failed to access microphone')
+  }
+}
+
+function stopRecording() {
+  if (mediaRecorder.value && isRecording.value) {
+    mediaRecorder.value.stop()
+    mediaRecorder.value.stream.getTracks().forEach(track => track.stop())
+    isRecording.value = false
+    
+    if (recordingInterval.value) {
+      clearInterval(recordingInterval.value)
+      recordingInterval.value = null
+    }
+  }
+}
+
+function removeAttachment(index) {
+  attachments.value.splice(index, 1)
+}
+
 async function handleSubmit() {
-  if (!input.value.trim() || isLoading.value || !currentSessionId.value) return
+  if ((!input.value.trim() && attachments.value.length === 0) || isLoading.value || !currentSessionId.value) return
   
   const messageContent = input.value.trim()
-  input.value = '' // Clear input immediately
+  const currentAttachments = [...attachments.value] // Copy attachments
   
-  // Add user message to UI immediately
+  input.value = '' // Clear input immediately
+  attachments.value = [] // Clear attachments
+  
+  // Add user message to UI immediately with attachments
   const userMessage = {
     id: Date.now(),
-    content: messageContent,
+    content: messageContent || (currentAttachments.length > 0 ? '[Attachment sent]' : ''),
     role: 'user',
-    createdAt: new Date()
+    createdAt: new Date(),
+    attachments: currentAttachments
   }
   messages.value.push(userMessage)
 
@@ -646,7 +999,7 @@ async function handleSubmit() {
   let aiMessage = null
 
   try {
-    // Send message to API
+    // Send message to API with attachments
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
@@ -655,7 +1008,8 @@ async function handleSubmit() {
       body: JSON.stringify({
         messages: messages.value,
         sessionId: currentSessionId.value,
-        aiModel: selectedAIModel.value
+        aiModel: selectedAIModel.value,
+        attachments: currentAttachments
       })
     })
 

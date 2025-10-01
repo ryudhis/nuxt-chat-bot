@@ -5,7 +5,7 @@ import { prisma } from "~/lib/prisma";
 export default defineEventHandler(async (event) => {
   try {
     const body = await readBody(event);
-    const { messages: chatMessages, sessionId, aiModel } = body;
+    const { messages: chatMessages, sessionId, aiModel, attachments } = body;
 
     if (!chatMessages || !sessionId) {
       throw createError({
@@ -53,27 +53,101 @@ export default defineEventHandler(async (event) => {
     });
     const isFirstMessage = existingMessagesCount === 0;
 
-    // Save user message to database
+    // Process multimodal attachments if present
+    let multimodalData: any = {
+      content: latestMessage.content,
+      role: "user",
+      sessionId: sessionId,
+    };
+
+    let enhancedPrompt = latestMessage.content;
+    let messageContent: any = latestMessage.content;
+
+    if (attachments && attachments.length > 0) {
+      const attachment = attachments[0]; // Handle first attachment
+      
+      if (attachment.type === 'image' && attachment.data) {
+        // For image: store base64 data and prepare for Gemini Vision
+        multimodalData.imageData = attachment.data;
+        multimodalData.mimeType = attachment.mimeType;
+        multimodalData.fileName = attachment.fileName;
+        
+        // For Gemini Vision API, we need to format the content differently
+        messageContent = {
+          type: 'multimodal',
+          text: latestMessage.content,
+          image: attachment.data
+        };
+        
+      } else if (attachment.type === 'pdf' && attachment.extractedText) {
+        // For PDF: add extracted text to prompt
+        multimodalData.pdfText = attachment.extractedText;
+        multimodalData.fileName = attachment.fileName;
+        
+        enhancedPrompt = `${latestMessage.content}\n\n[Konten PDF "${attachment.fileName}"]:\n${attachment.extractedText}`;
+        
+      } else if (attachment.type === 'audio' && attachment.extractedText) {
+        // For Audio: add transcribed text to prompt
+        multimodalData.audioData = attachment.data;
+        multimodalData.fileName = attachment.fileName;
+        
+        enhancedPrompt = `${latestMessage.content}\n\n[Transkrip Audio "${attachment.fileName}"]:\n${attachment.extractedText}`;
+      }
+    }
+
+    // Save user message to database with multimodal data
     await prisma.message.create({
-      data: {
-        content: latestMessage.content,
-        role: "user",
-        sessionId: sessionId,
-      },
+      data: multimodalData,
     });
 
-    // Use conversation history from AI SDK
+    // Build conversation history - use enhanced prompt for text-based models
     const conversationHistory: {
       role: "user" | "assistant";
-      content: string;
-    }[] = chatMessages.map((msg: any) => ({
-      role: msg.role === "user" ? "user" : "assistant",
-      content: msg.content,
-    }));
+      content: any;
+    }[] = chatMessages.map((msg: any, index: number) => {
+      // For the latest message with attachments, use appropriate content
+      if (index === chatMessages.length - 1 && attachments && attachments.length > 0) {
+        const attachment = attachments[0];
+        
+        if (attachment.type === 'image' && attachment.data) {
+          // For image messages, use multimodal format
+          return {
+            role: msg.role === "user" ? "user" : "assistant",
+            content: [
+              { type: "text", text: enhancedPrompt },
+              { 
+                type: "image", 
+                image: attachment.data // Base64 data URL
+              }
+            ]
+          };
+        } else {
+          // For PDF/Audio, use enhanced text prompt
+          return {
+            role: msg.role === "user" ? "user" : "assistant",
+            content: enhancedPrompt
+          };
+        }
+      }
+      
+      return {
+        role: msg.role === "user" ? "user" : "assistant",
+        content: msg.content,
+      };
+    });
 
     const googleAI = createGoogleGenerativeAI({ apiKey });
-    // Create Google AI instance with selected model or default
-    const selectedModel = aiModel || "gemini-2.5-flash";
+    
+    // Auto-select model based on content type
+    let selectedModel = aiModel || "gemini-2.5-flash";
+    const hasImageContent = attachments && attachments.some((att: any) => att.type === 'image');
+    
+    // Use vision model for images
+    if (hasImageContent) {
+      selectedModel = "gemini-2.5-flash"; // gemini-2.5-flash supports vision
+      console.log('Using vision-enabled model for image content');
+    }
+    
     const model = googleAI(selectedModel);
 
     // Generate streaming response
