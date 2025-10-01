@@ -36,7 +36,7 @@
       >
         <div class="flex flex-col h-full">
           <!-- Sidebar Header -->
-          <div class="flex-shrink-0 p-4 border-b">
+          <div class="flex-shrink-0 p-4 border-b space-y-3">
             <div class="flex items-center justify-between">
               <h2 class="text-lg font-semibold">Conversations</h2>
               <div class="flex items-center gap-2">
@@ -52,6 +52,26 @@
                   <X/>
                 </Button>
               </div>
+            </div>
+            
+            <!-- Model Switcher (Mobile) -->
+            <div class="space-y-2">
+              <label class="text-sm font-medium text-muted-foreground">AI Model</label>
+              <select 
+                v-model="selectedAIModel"
+                class="w-full px-3 py-2 text-sm bg-background border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              >
+                <option 
+                  v-for="model in availableModels" 
+                  :key="model.value"
+                  :value="model.value"
+                >
+                  {{ model.label }}
+                </option>
+              </select>
+              <p class="text-xs text-muted-foreground">
+                {{ availableModels.find(m => m.value === selectedAIModel)?.description }}
+              </p>
             </div>
           </div>
 
@@ -124,7 +144,7 @@
       <!-- Desktop Sidebar -->
       <div class="hidden md:flex md:w-80 md:flex-col border-r bg-muted/30 h-screen overflow-hidden">
         <!-- Sidebar Header -->
-        <div class="flex-shrink-0 p-4 border-b">
+        <div class="flex-shrink-0 p-4 border-b space-y-3">
           <div class="flex items-center justify-between">
             <h2 class="text-lg font-semibold">Conversations</h2>
             <Button @click="createNewChat" size="sm" variant="default">
@@ -133,6 +153,26 @@
               </svg>
               New
             </Button>
+          </div>
+          
+          <!-- Model Switcher -->
+          <div class="space-y-2">
+            <label class="text-sm font-medium text-muted-foreground">AI Model</label>
+            <select 
+              v-model="selectedAIModel"
+              class="w-full px-3 py-2 text-sm bg-background border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+            >
+              <option 
+                v-for="model in availableModels" 
+                :key="model.value"
+                :value="model.value"
+              >
+                {{ model.label }}
+              </option>
+            </select>
+            <p class="text-xs text-muted-foreground">
+              {{ availableModels.find(m => m.value === selectedAIModel)?.description }}
+            </p>
           </div>
         </div>
 
@@ -371,6 +411,7 @@
 <script setup>
 import { LogOut, Menu, X, Plus } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it'
+import { onMounted } from 'vue'
 
 const { user, isLoggedIn, login, logout } = useAuth()
 
@@ -396,6 +437,22 @@ const isLoading = ref(false)
 const error = ref(null)
 const streamingText = ref('')
 const streamingMessageId = ref(null)
+
+// Model Switcher state
+const selectedAIModel = ref('gemini-2.5-flash') // Default model
+
+const availableModels = [
+  { 
+    value: 'gemini-2.5-flash', 
+    label: 'Gemini 2.5 Flash', 
+    description: 'Faster responses, efficient for most tasks'
+  },
+  { 
+    value: 'gemini-2.5-pro', 
+    label: 'Gemini 2.5 Pro', 
+    description: 'More powerful, better for complex tasks'
+  }
+]
 
 const clearError = () => {
   error.value = null
@@ -460,6 +517,23 @@ watch(isMobileMenuOpen, (newValue) => {
   }
 })
 
+// Model persistence in localStorage
+onMounted(() => {
+  if (process.client) {
+    const savedModel = localStorage.getItem('selectedAIModel')
+    if (savedModel && availableModels.some(m => m.value === savedModel)) {
+      selectedAIModel.value = savedModel
+    }
+  }
+})
+
+// Watch for model changes and save to localStorage
+watch(selectedAIModel, (newModel) => {
+  if (process.client) {
+    localStorage.setItem('selectedAIModel', newModel)
+  }
+})
+
 // Cleanup on unmount
 onUnmounted(() => {
   if (process.client) {
@@ -483,6 +557,14 @@ async function fetchChatSessions(logtoUserId) {
     error.value = error
   } finally {
     isLoadingSessions.value = false
+  }
+}
+
+async function updateSessionTitle(sessionId, newTitle) {
+  // Update the title in the local sessions list
+  const sessionIndex = chatSessions.value.findIndex(session => session.id === sessionId)
+  if (sessionIndex !== -1) {
+    chatSessions.value[sessionIndex].title = newTitle
   }
 }
 
@@ -572,7 +654,8 @@ async function handleSubmit() {
       },
       body: JSON.stringify({
         messages: messages.value,
-        sessionId: currentSessionId.value
+        sessionId: currentSessionId.value,
+        aiModel: selectedAIModel.value
       })
     })
 
@@ -627,6 +710,9 @@ async function handleSubmit() {
               // Ensure DOM updates and scroll
               await nextTick()
               scrollToBottom()
+            } else if (parsed.sessionTitle) {
+              // Handle session title update
+              await updateSessionTitle(currentSessionId.value, parsed.sessionTitle)
             }
           } catch (e) {
             // Skip invalid JSON
@@ -942,4 +1028,3 @@ function isLastAIMessage(messageId) {
   }
 }
 </style>
-
