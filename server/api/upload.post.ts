@@ -1,4 +1,4 @@
-import { createError, readBody } from 'h3'
+﻿import { createError, readBody } from 'h3'
 
 export default defineEventHandler(async (event) => {
   try {
@@ -91,53 +91,6 @@ export default defineEventHandler(async (event) => {
       // For images, we'll pass the base64 data directly to Gemini Vision
       processedData.originalData = file
       console.log('Image processed for vision analysis')
-    } else if (type.startsWith('audio/')) {
-      // For audio, use OpenAI Whisper for speech-to-text
-      processedData.originalData = file
-      
-      try {
-        console.log('Processing audio file for speech-to-text...')
-        
-        // Check if OpenAI API key is configured
-        const config = useRuntimeConfig()
-        const openaiApiKey = config.openaiApiKey
-        
-        if (!openaiApiKey) {
-          console.warn('OpenAI API key not configured, audio transcription unavailable')
-          processedData.extractedText = '[Audio uploaded - OpenAI API key required for transcription]'
-        } else {
-          // Convert base64 to blob for OpenAI API
-          const audioBlob = Buffer.from(base64Data, 'base64')
-          
-          // Create form data for OpenAI Whisper API
-          const formData = new FormData()
-          const audioFile = new File([audioBlob], 'audio.wav', { type: 'audio/wav' })
-          formData.append('file', audioFile)
-          formData.append('model', 'whisper-1')
-          formData.append('language', 'id') // Indonesian language
-          
-          // Call OpenAI Whisper API
-          const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${openaiApiKey}`,
-            },
-            body: formData
-          })
-          
-          if (!response.ok) {
-            throw new Error(`OpenAI API error: ${response.statusText}`)
-          }
-          
-          const transcription = await response.json()
-          processedData.extractedText = transcription.text || '[No speech detected in audio]'
-          console.log('Audio transcription successful:', transcription.text?.substring(0, 100) + '...')
-        }
-      } catch (error: any) {
-        console.error('Audio transcription error:', error)
-        processedData.extractedText = '[Audio upload successful - transcription failed]'
-        console.log('Continuing with audio upload despite transcription failure')
-      }
     }
 
     return {

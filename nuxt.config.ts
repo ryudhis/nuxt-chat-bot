@@ -17,13 +17,8 @@ export default defineNuxtConfig({
     "shadcn-nuxt",
     "@logto/nuxt",
     "@vueuse/nuxt",
-    'nuxt-lucide-icons',
     "@nuxtjs/google-fonts",
-    "nuxt-lucide-icons",
   ],
-  lucide: {
-    namePrefix: 'Icon'
-  },
   shadcn: {
     prefix: "",
     componentDir: "./components/ui",

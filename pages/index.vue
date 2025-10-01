@@ -357,29 +357,7 @@
                             </div>
                           </div>
                           
-                          <!-- Audio Attachment -->
-                          <div v-else-if="attachment.type === 'audio'" class="space-y-2">
-                            <div class="flex items-center space-x-2 text-xs text-muted-foreground">
-                              <Mic class="w-3 h-3" />
-                              <span>{{ attachment.fileName }}</span>
-                              <span v-if="attachment.status === 'transcription_failed'" class="text-orange-500 text-xs">
-                                ⚠️ Transcription failed
-                              </span>
-                              <span v-else class="text-green-500 text-xs">
-                                ✅ Transcribed
-                              </span>
-                            </div>
-                            <audio controls class="w-full max-w-xs">
-                              <source :src="attachment.data" type="audio/wav">
-                              Your browser does not support the audio element.
-                            </audio>
-                            <div v-if="attachment.status === 'transcription_failed'" class="text-xs text-orange-600 bg-orange-50 p-2 rounded">
-                              Audio uploaded successfully, but transcription failed. Please check OpenAI API configuration.
-                            </div>
-                            <div v-else-if="attachment.extractedText && !attachment.extractedText.includes('transcription')" class="text-xs text-green-600 bg-green-50 p-2 rounded">
-                              Transcription: "{{ attachment.extractedText.substring(0, 100) }}..."
-                            </div>
-                          </div>
+
                         </div>
                       </div>
                       
@@ -450,7 +428,6 @@
                   <div v-for="(attachment, index) in attachments" :key="index" class="flex items-center space-x-2 bg-background rounded-lg p-2 border">
                     <Image v-if="attachment.type === 'image'" class="w-4 h-4 text-blue-500" />
                     <FileText v-else-if="attachment.type === 'pdf'" class="w-4 h-4 text-red-500" />
-                    <Mic v-else-if="attachment.type === 'audio'" class="w-4 h-4 text-green-500" />
                     <span class="text-sm truncate max-w-32">{{ attachment.fileName || 'Uploaded file' }}</span>
                     <Button @click="removeAttachment(index)" variant="ghost" size="sm" class="h-6 w-6 p-0">
                       <X class="w-3 h-3" />
@@ -469,6 +446,17 @@
                   <MicOff class="w-4 h-4" />
                   Stop
                 </Button>
+              </div>
+            </div>
+
+            <!-- Speech Transcription Indicator -->
+            <div v-if="isTranscribing" class="border-b bg-blue-50 p-3">
+              <div class="flex items-center justify-center space-x-2 text-blue-600">
+                <div class="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                <span class="text-sm font-medium">Converting speech to text...</span>
+              </div>
+              <div v-if="transcriptionText" class="mt-2 text-sm text-gray-600 bg-white p-2 rounded border max-w-2xl mx-auto">
+                "{{ transcriptionText }}"
               </div>
             </div>
 
@@ -491,9 +479,9 @@
                       <FileText class="w-4 h-4 mr-2" />
                       PDF
                     </Button>
-                    <Button @click="startRecording" variant="ghost" size="sm" class="justify-start" :disabled="isRecording">
+                    <Button @click="startRecording" variant="ghost" size="sm" class="justify-start" :disabled="isRecording || isTranscribing">
                       <Mic class="w-4 h-4 mr-2" />
-                      Record
+                      Voice to Text
                     </Button>
                     </div>
                   </div>
@@ -598,6 +586,11 @@ const isRecording = ref(false)
 const recordingDuration = ref(0)
 const mediaRecorder = ref(null)
 const recordingInterval = ref(null)
+
+// Speech recognition variables
+const speechRecognition = ref(null)
+const isTranscribing = ref(false)
+const transcriptionText = ref('')
 
 const clearError = () => {
   error.value = null
@@ -879,70 +872,90 @@ async function handlePdfUpload(event) {
 
 async function startRecording() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    mediaRecorder.value = new MediaRecorder(stream)
-    
-    const chunks = []
-    mediaRecorder.value.ondataavailable = (event) => {
-      chunks.push(event.data)
+    // Initialize speech recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      alert('Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.')
+      return
     }
-    
-    mediaRecorder.value.onstop = async () => {
-      const blob = new Blob(chunks, { type: 'audio/wav' })
-      const reader = new FileReader()
-      reader.onload = async (e) => {
-        try {
-          const base64Data = e.target?.result
-          
-          // Process audio with speech-to-text
-          console.log('Processing audio for transcription...')
-          
-          const response = await $fetch('/api/upload', {
-            method: 'POST',
-            body: {
-              file: base64Data,
-              type: 'audio/wav'
-            }
-          })
-          
-          if (response.success) {
-            const extractedText = response.data.extractedText
-            let status = 'success'
-            
-            // Check transcription status
-            if (extractedText.includes('transcription not implemented') || 
-                extractedText.includes('transcription failed') ||
-                extractedText.includes('API key required')) {
-              status = 'transcription_failed'
-            }
-            
-            attachments.value.push({
-              type: 'audio',
-              data: base64Data,
-              extractedText: extractedText,
-              mimeType: 'audio/wav',
-              fileName: `recording-${Date.now()}.wav`,
-              status: status
-            })
-            
-            // Show user feedback
-            if (status === 'transcription_failed') {
-              console.warn('Audio uploaded but transcription failed')
-            } else {
-              console.log('Audio uploaded and transcribed successfully')
-            }
-          }
-        } catch (error) {
-          console.error('Failed to process audio:', error)
-          alert('Failed to process audio recording')
+
+    speechRecognition.value = new SpeechRecognition()
+    speechRecognition.value.continuous = true
+    speechRecognition.value.interimResults = true
+    speechRecognition.value.lang = 'id-ID' // Indonesian language, change to 'en-US' for English
+
+    isRecording.value = true
+    isTranscribing.value = false
+    recordingDuration.value = 0
+    transcriptionText.value = ''
+
+    // Handle speech recognition results
+    speechRecognition.value.onresult = (event) => {
+      let interimTranscript = ''
+      let finalTranscript = ''
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + ' '
+        } else {
+          interimTranscript += transcript
         }
       }
-      reader.readAsDataURL(blob)
+
+      // Update the displayed transcription
+      transcriptionText.value = finalTranscript + interimTranscript
+      
+      // Add final results to the message input
+      if (finalTranscript) {
+        if (input.value && !input.value.endsWith(' ')) {
+          input.value += ' '
+        }
+        input.value += finalTranscript
+      }
     }
-    
-    isRecording.value = true
-    recordingDuration.value = 0
-    mediaRecorder.value.start()
+
+    speechRecognition.value.onstart = () => {
+      console.log('Speech recognition started')
+      isTranscribing.value = true
+    }
+
+    speechRecognition.value.onend = () => {
+      console.log('Speech recognition ended')
+      isRecording.value = false
+      isTranscribing.value = false
+      
+      // Stop recording timer
+      if (recordingInterval.value) {
+        clearInterval(recordingInterval.value)
+        recordingInterval.value = null
+      }
+    }
+
+    speechRecognition.value.onerror = (event) => {
+      console.error('Speech recognition error:', event.error)
+      isRecording.value = false
+      isTranscribing.value = false
+      
+      let errorMessage = 'Speech recognition failed: '
+      switch(event.error) {
+        case 'no-speech':
+          errorMessage += 'No speech detected. Please try again.'
+          break
+        case 'audio-capture':
+          errorMessage += 'Could not access microphone.'
+          break
+        case 'not-allowed':
+          errorMessage += 'Microphone access denied.'
+          break
+        default:
+          errorMessage += event.error
+      }
+      alert(errorMessage)
+    }
+
+    // Start speech recognition
+    speechRecognition.value.start()
     
     // Update duration counter
     recordingInterval.value = setInterval(() => {
@@ -952,20 +965,25 @@ async function startRecording() {
     showAttachmentMenu.value = false
   } catch (error) {
     console.error('Recording error:', error)
-    alert('Failed to access microphone')
+    alert('Failed to start speech recognition: ' + error.message)
   }
 }
 
 function stopRecording() {
-  if (mediaRecorder.value && isRecording.value) {
-    mediaRecorder.value.stop()
-    mediaRecorder.value.stream.getTracks().forEach(track => track.stop())
+  if (speechRecognition.value && isRecording.value) {
+    speechRecognition.value.stop()
     isRecording.value = false
+    isTranscribing.value = false
     
     if (recordingInterval.value) {
       clearInterval(recordingInterval.value)
       recordingInterval.value = null
     }
+    
+    // Clear the transcription display
+    setTimeout(() => {
+      transcriptionText.value = ''
+    }, 1000)
   }
 }
 

@@ -85,13 +85,6 @@ export default defineEventHandler(async (event) => {
         multimodalData.fileName = attachment.fileName;
         
         enhancedPrompt = `${latestMessage.content}\n\n[Konten PDF "${attachment.fileName}"]:\n${attachment.extractedText}`;
-        
-      } else if (attachment.type === 'audio' && attachment.extractedText) {
-        // For Audio: add transcribed text to prompt
-        multimodalData.audioData = attachment.data;
-        multimodalData.fileName = attachment.fileName;
-        
-        enhancedPrompt = `${latestMessage.content}\n\n[Transkrip Audio "${attachment.fileName}"]:\n${attachment.extractedText}`;
       }
     }
 

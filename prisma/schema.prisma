@@ -44,7 +44,6 @@ model Message {
   
   // Multimodal support
   imageData    String?  // Base64 encoded image data
-  audioData    String?  // Base64 encoded audio data
   pdfText      String?  @db.Text // Extracted PDF text
   fileName     String?  // Original file name
   mimeType     String?  // File MIME type
