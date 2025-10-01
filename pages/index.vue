@@ -749,12 +749,34 @@ async function selectSession(sessionId) {
     const sessionMessages = response.data.messages || []
     
     // Convert database messages to proper format
-    const formattedMessages = sessionMessages.map(msg => ({
-      id: msg.id.toString(),
-      role: msg.role,
-      content: msg.content,
-      createdAt: new Date(msg.createdAt)
-    }))
+    const formattedMessages = sessionMessages.map(msg => {
+      const formattedMsg = {
+        id: msg.id.toString(),
+        role: msg.role,
+        content: msg.content,
+        createdAt: new Date(msg.createdAt),
+        attachments: [] // Initialize attachments array
+      }
+      
+      // Add attachment data if available
+      if (msg.imageData) {
+        formattedMsg.attachments.push({
+          type: 'image',
+          data: msg.imageData,
+          mimeType: msg.mimeType,
+          fileName: msg.fileName
+        })
+      } else if (msg.pdfText) {
+        formattedMsg.attachments.push({
+          type: 'pdf',
+          extractedText: msg.pdfText,
+          fileName: msg.fileName,
+          status: msg.pdfText.includes('extraction failed') ? 'extraction_failed' : 'extracted'
+        })
+      }
+      
+      return formattedMsg
+    })
     
     console.log('Formatted messages:', formattedMessages)
     // Set messages
