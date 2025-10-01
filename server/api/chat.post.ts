@@ -1,0 +1,122 @@
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { streamText } from 'ai'
+import { prisma } from '~/lib/prisma'
+
+export default defineEventHandler(async (event) => {
+  try {
+    const body = await readBody(event)
+    const { messages: chatMessages, sessionId } = body
+    
+    if (!chatMessages || !sessionId) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Messages and sessionId are required'
+      })
+    }
+    
+    // Get the latest user message
+    const latestMessage = chatMessages[chatMessages.length - 1]
+    if (!latestMessage || latestMessage.role !== 'user') {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Latest message must be from user'
+      })
+    }
+
+    // Get API key from runtime config
+    const config = useRuntimeConfig()
+    const apiKey = config.googleApiKey
+    
+    if (!apiKey) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Google API key not configured'
+      })
+    }
+
+    // Verify session exists and get user
+    const session = await prisma.chatSession.findUnique({
+      where: { id: sessionId },
+      include: { user: true }
+    })
+
+    if (!session) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: 'Session not found'
+      })
+    }
+
+    // Save user message to database
+    await prisma.message.create({
+      data: {
+        content: latestMessage.content,
+        role: 'user',
+        sessionId: sessionId
+      }
+    })
+
+    // Use conversation history from AI SDK
+    const conversationHistory: { role: 'user' | 'assistant'; content: string }[] = chatMessages.map((msg: any) => ({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.content
+    }))
+
+    const googleAI = createGoogleGenerativeAI({ apiKey });
+    // Create Google AI instance
+    const model = googleAI("gemini-2.5-flash");
+
+    // Generate streaming response
+    const result = await streamText({
+      model,
+      messages: conversationHistory,
+      temperature: 0.7,
+    })
+
+    // Set headers for streaming
+    setHeader(event, 'Content-Type', 'text/plain; charset=utf-8')
+    setHeader(event, 'Cache-Control', 'no-cache')
+    setHeader(event, 'Connection', 'keep-alive')
+
+    let fullResponse = ''
+
+    // Create readable stream
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const delta of result.textStream) {
+            fullResponse += delta
+            
+            // Send chunk to client
+            const chunk = `data: ${JSON.stringify({ content: delta })}\n\n`
+            controller.enqueue(new TextEncoder().encode(chunk))
+          }
+          
+          // Save complete AI response to database
+          await prisma.message.create({
+            data: {
+              content: fullResponse,
+              role: 'assistant',
+              sessionId: sessionId
+            }
+          })
+
+          // Send completion signal
+          controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'))
+          controller.close()
+        } catch (error) {
+          console.error('Streaming error:', error)
+          controller.error(error)
+        }
+      }
+    })
+
+    return stream
+  } catch (error: any) {
+    console.error('Chat API error:', error)
+    throw createError({
+      statusCode: 500,
+      statusMessage: error?.message || 'Internal server error'
+    })
+  }
+})

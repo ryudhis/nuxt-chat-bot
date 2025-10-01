@@ -1,0 +1,53 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       String @id @default(cuid())
+  email    String @unique
+  logtoId  String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  sessions ChatSession[]
+  
+  @@map("users")
+}
+
+model ChatSession {
+  id        String   @id @default(cuid())
+  title     String   @default("New Chat")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    String
+  
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
+  
+  @@map("chat_sessions")
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  role      String   // "user" or "assistant"
+  createdAt DateTime @default(now())
+  sessionId String
+  
+  session           ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
+  // For message branching feature (bonus)
+  parentMessageId String?
+  parent          Message? @relation("MessageBranch", fields: [parentMessageId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children        Message[] @relation("MessageBranch")
+  
+  @@map("messages")
+}
