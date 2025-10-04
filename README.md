@@ -1,75 +1,63 @@
-# Nuxt Minimal Starter
+## Deployment Link
+- Soon to be added after netlify error fixed.
 
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+# Nuxt Chat Bot
+A modern multimodal AI chat application built with Nuxt 3, supporting text, image, and PDF conversations. Features real-time speech-to-text, Google Gemini AI integration, and persistent chat history with attachments.
 
-## Setup
+## 🚀 Tech Stack
+- **Nuxt 3** (Vue 3, TypeScript)
+- **Tailwind CSS**
+- **Prisma ORM** (PostgreSQL)
+- **Google Gemini AI** (Vision & Text)
+- **Logto** (Authentication)
+- **pdf2json** (PDF text extraction)
 
-Make sure to install dependencies:
+## ⚡️ Local Development Setup
 
+### 1. Install Dependencies
 ```bash
-# npm
 npm install
-
-# pnpm
-pnpm install
-
-# yarn
-yarn install
-
-# bun
-bun install
 ```
 
-## Development Server
-
-Start the development server on `http://localhost:3000`:
-
+### 2. Environment Variables
+Copy `.env.example` to `.env` and fill in your credentials:
 ```bash
-# npm
+cp .env.example .env
+```
+Edit `.env` and set:
+- `DATABASE_URL` (PostgreSQL connection string)
+- `GOOGLE_API_KEY` (Google Gemini API key)
+- `LOGTO_ENDPOINT`, `LOGTO_APP_ID`, `LOGTO_APP_SECRET` (Logto config)
+- `NUXT_PUBLIC_BASE_URL` (usually `http://localhost:3000`)
+
+### 3. Run Database Migrations
+```bash
+npx prisma migrate dev
+```
+
+### 4. Start the Application
+```bash
 npm run dev
-
-# pnpm
-pnpm dev
-
-# yarn
-yarn dev
-
-# bun
-bun run dev
 ```
 
-## Production
+App will be available at [http://localhost:3000](http://localhost:3000)
 
-Build the application for production:
+## 📝 Features
+- Multimodal chat: text, image, PDF
+- Real-time speech-to-text (Web Speech API)
+- Google Gemini AI for vision & text
+- Persistent chat history with attachments
+- Authentication via Logto
 
-```bash
-# npm
-npm run build
+## 📂 Project Structure
+- `pages/` — Main chat UI
+- `server/api/` — API endpoints
+- `prisma/` — Database schema
+- `.env.example` — Environment variable template
 
-# pnpm
-pnpm build
+## 🛠️ Useful Commands
+- Install dependencies: `npm install`
+- Run migrations: `npx prisma migrate dev`
+- Start dev server: `npm run dev`
 
-# yarn
-yarn build
-
-# bun
-bun run build
-```
-
-Locally preview production build:
-
-```bash
-# npm
-npm run preview
-
-# pnpm
-pnpm preview
-
-# yarn
-yarn preview
-
-# bun
-bun run preview
-```
-
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
+---
